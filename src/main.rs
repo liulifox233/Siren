@@ -21,6 +21,7 @@ struct NowListening {
     duration: Option<u64>,
     artist: Option<Vec<String>>,
     album: Option<String>,
+    album_cover: Option<String>,
     start_time: Option<u128>,
 }
 
@@ -71,6 +72,7 @@ async fn main() -> Result<()> {
         duration: None,
         artist: None,
         album: None,
+        album_cover: None,
         start_time: None,
     }));
 
@@ -114,6 +116,8 @@ async fn update(
     now_listening.duration = payload.duration;
     now_listening.artist = payload.artist;
     now_listening.album = payload.album;
+    now_listening.album_cover = payload.album_cover;
+    now_listening.start_time = payload.start_time;
     println!("Updated: {:?}", now_listening);
     Ok("Updated".to_string())
 }
@@ -139,6 +143,7 @@ async fn auto_update(
             now_listening.duration =  None;
             now_listening.artist = None;
             now_listening.album = None;
+            now_listening.album_cover = None;
             now_listening.start_time = None;
             return Ok("Not playing".to_string());
         },
@@ -167,6 +172,8 @@ async fn auto_update(
             now_listening.name = Some(payload.name.unwrap());
             now_listening.artist = Some(vec![payload.artist.unwrap()]);
             now_listening.album = res_json["results"]["top"]["data"][0]["attributes"]["albumName"]
+                .as_str().map(|s| s.to_string());
+            now_listening.album_cover = res_json["results"]["top"]["data"][0]["attributes"]["artwork"]["url"]
                 .as_str().map(|s| s.to_string());
             now_listening.duration = res_json["results"]["top"]["data"][0]["attributes"]["durationInMillis"]
                 .as_u64();
