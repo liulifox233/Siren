@@ -22,9 +22,7 @@ pub struct Word {
 
 impl LyricsJSON {
     pub fn new() -> Self {
-        Self { 
-            lines: Vec::new() 
-        }
+        Self { lines: Vec::new() }
     }
 
     pub fn add_line(&mut self, line: Line) {
@@ -38,7 +36,7 @@ impl Line {
             begin,
             end,
             words: Vec::new(),
-            background: Vec::new()
+            background: Vec::new(),
         }
     }
 
@@ -53,10 +51,6 @@ impl Line {
 
 impl Word {
     pub fn new(begin: String, end: String, text: String) -> Self {
-        Self {
-            begin,
-            end,
-            text
-        }
+        Self { begin, end, text }
     }
 }

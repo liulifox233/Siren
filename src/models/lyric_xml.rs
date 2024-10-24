@@ -25,4 +25,3 @@ pub struct P {
     #[serde(rename = "$text")]
     pub line: String,
 }
-

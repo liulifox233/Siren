@@ -1,6 +1,6 @@
+use crate::models::user_storefront::UserStorefront;
 use reqwest::header::HeaderMap;
 use reqwest::{header, Client};
-use crate::models::user_storefront::UserStorefront;
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -17,7 +17,7 @@ impl Request {
             storefront: String::new(),
         }
     }
-    
+
     pub(crate) fn create_header(&mut self) -> HeaderMap {
         let mut headers = header::HeaderMap::new();
         headers.insert("origin", "https://music.apple.com".parse().unwrap());
@@ -28,19 +28,18 @@ impl Request {
 
     pub(crate) async fn get_user_storefront(&mut self) {
         let headers = self.create_header();
-        let client = Client::builder()
-            .default_headers(headers)
-            .build()
-            .unwrap();
+        let client = Client::builder().default_headers(headers).build().unwrap();
 
-        let res = client.get("https://api.music.apple.com/v1/me/storefront").send().await.unwrap();
+        let res = client
+            .get("https://api.music.apple.com/v1/me/storefront")
+            .send()
+            .await
+            .unwrap();
         let res_string = res.text().await.unwrap();
         let user_storefront: UserStorefront = serde_json::from_str(&res_string).unwrap();
         self.storefront = match user_storefront.data.first() {
-            Some(data) => {
-                data.id.to_owned()
-            }
-            None =>  {
+            Some(data) => data.id.to_owned(),
+            None => {
                 panic!("Can't found user storefront")
             }
         }
@@ -54,7 +53,7 @@ impl Request {
                 match c.to_digit(10) {
                     Some(_) => {
                         id.push(c);
-                    },
+                    }
                     None => {
                         match_header = 0;
                         continue;
@@ -68,7 +67,7 @@ impl Request {
             }
         }
         id
-    } 
+    }
 
     pub(crate) fn create_lyrics_url(&self, song_id: &str) -> String {
         format!("https://amp-api.music.apple.com/v1/catalog/{}/songs/{}?include[songs]=albums,lyrics,syllable-lyrics", self.storefront, song_id)

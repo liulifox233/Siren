@@ -8,7 +8,7 @@ pub struct UserStorefront {
 #[derive(Serialize, Deserialize)]
 pub struct Data {
     pub id: String,
-    #[serde(rename="type")]
+    #[serde(rename = "type")]
     pub data_type: String,
     pub href: String,
     pub attributes: Attributes,
@@ -16,11 +16,11 @@ pub struct Data {
 
 #[derive(Serialize, Deserialize)]
 pub struct Attributes {
-    #[serde(rename="supportedLanguageTags")]
+    #[serde(rename = "supportedLanguageTags")]
     supported_language_tags: Vec<String>,
-    #[serde(rename="defaultLanguageTag")]
+    #[serde(rename = "defaultLanguageTag")]
     default_language_tag: String,
     name: String,
-    #[serde(rename="explicitContentPolicy")]
+    #[serde(rename = "explicitContentPolicy")]
     explicit_content_policy: String,
 }

@@ -1,21 +1,29 @@
+mod feishu;
 mod models;
 mod services;
 
 use core::str;
-use std::sync::Arc;
 use services::apple_music_url::Request;
+use std::sync::Arc;
 
-use structopt::StructOpt;
-use axum::{self, extract::{FromRef, Json, State}, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Router};
-use tokio::{net::TcpListener, sync::Mutex};
+use axum::{
+    self,
+    extract::{FromRef, Json, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Router,
+};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use services::token_handler::Token;
-use reqwest::Client;
+use structopt::StructOpt;
+use tokio::{net::TcpListener, sync::Mutex};
 
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct NowListening {
+pub struct NowListening {
     is_playing: bool,
     name: Option<String>,
     duration: Option<u64>,
@@ -36,7 +44,7 @@ enum PlayStatus {
 struct AutoUpdate {
     play_status: PlayStatus,
     name: Option<String>,
-    artist: Option<String>
+    artist: Option<String>,
 }
 
 #[derive(structopt::StructOpt)]
@@ -49,6 +57,7 @@ struct Input {
 struct ShareState {
     now_listening: Arc<Mutex<NowListening>>,
     request: Arc<Mutex<Request>>,
+    feishu_request: Arc<Mutex<feishu::FeishuRequest>>,
 }
 
 impl FromRef<ShareState> for Arc<Mutex<NowListening>> {
@@ -60,6 +69,12 @@ impl FromRef<ShareState> for Arc<Mutex<NowListening>> {
 impl FromRef<ShareState> for Arc<Mutex<Request>> {
     fn from_ref(share_state: &ShareState) -> Self {
         share_state.request.clone()
+    }
+}
+
+impl FromRef<ShareState> for Arc<Mutex<feishu::FeishuRequest>> {
+    fn from_ref(share_state: &ShareState) -> Self {
+        share_state.feishu_request.clone()
     }
 }
 
@@ -89,11 +104,16 @@ async fn main() -> Result<()> {
     request.get_user_storefront().await;
     println!("User storefront: Done!");
 
+    println!("Loading feishu app information...");
+    let feishu_request = Arc::new(Mutex::new(feishu::FeishuRequest::new()));
+    println!("Feishu app information: Done!");
+
     let request = Arc::new(Mutex::new(request));
 
     let state = ShareState {
         now_listening: now_listening.clone(),
         request,
+        feishu_request,
     };
 
     let app = Router::new()
@@ -129,10 +149,8 @@ async fn auto_update(
     let mut now_listening = state.now_listening.lock().await;
     let mut request = state.request.lock().await;
     let headers = request.create_header();
-    let client = Client::builder()
-        .default_headers(headers)
-        .build()
-        .unwrap();
+    let client = Client::builder().default_headers(headers).build().unwrap();
+    let mut feishu_request = state.feishu_request.lock().await;
 
     println!("Auto update: {:?}", payload);
 
@@ -140,15 +158,24 @@ async fn auto_update(
         PlayStatus::Stopped => {
             now_listening.is_playing = false;
             now_listening.name = None;
-            now_listening.duration =  None;
+            now_listening.duration = None;
             now_listening.artist = None;
             now_listening.album = None;
             now_listening.album_cover = None;
             now_listening.start_time = None;
+
+            feishu_request.refresh_token().await;
+            feishu_request.update_status(now_listening.clone()).await;
+            let now = chrono::Local::now();
+            let time = now.timestamp_millis() as u128 + 114514;
+            feishu_request.set_status(time).await;
             return Ok("Not playing".to_string());
-        },
+        }
         PlayStatus::Playing => {
-            let url = request.create_search_url(payload.name.clone().unwrap().as_str(), payload.artist.clone().unwrap().as_str());
+            let url = request.create_search_url(
+                payload.name.clone().unwrap().as_str(),
+                payload.artist.clone().unwrap().as_str(),
+            );
 
             let res = match client.get(url).send().await {
                 Ok(r) => {
@@ -156,9 +183,9 @@ async fn auto_update(
                         panic!("Invalid response: {:}", r.text().await.unwrap());
                     }
                     r
-                },
+                }
                 Err(error) => {
-                    panic!("{:}", error.to_string()); 
+                    panic!("{:}", error.to_string());
                 }
             };
             let res_json: serde_json::Value = match res.json().await {
@@ -172,20 +199,34 @@ async fn auto_update(
             now_listening.name = Some(payload.name.unwrap());
             now_listening.artist = Some(vec![payload.artist.unwrap()]);
             now_listening.album = res_json["results"]["top"]["data"][0]["attributes"]["albumName"]
-                .as_str().map(|s| s.to_string());
-            now_listening.album_cover = res_json["results"]["top"]["data"][0]["attributes"]["artwork"]["url"]
-                .as_str().map(|s| s.to_string());
-            now_listening.duration = res_json["results"]["top"]["data"][0]["attributes"]["durationInMillis"]
-                .as_u64();
+                .as_str()
+                .map(|s| s.to_string());
+            now_listening.album_cover = res_json["results"]["top"]["data"][0]["attributes"]
+                ["artwork"]["url"]
+                .as_str()
+                .map(|s| s.to_string());
+            now_listening.duration =
+                res_json["results"]["top"]["data"][0]["attributes"]["durationInMillis"].as_u64();
             now_listening.start_time = Some(chrono::Local::now().timestamp_millis() as u128);
-        },
+
+            feishu_request.refresh_token().await;
+            feishu_request.update_status(now_listening.clone()).await;
+            let now = chrono::Local::now();
+            let time = now.timestamp_millis() as u128 + now_listening.duration.unwrap() as u128;
+            feishu_request.set_status(time).await;
+        }
         PlayStatus::Paused => {
             now_listening.is_playing = false;
+
+            feishu_request.refresh_token().await;
+            feishu_request.update_status(now_listening.clone()).await;
+            let now = chrono::Local::now();
+            let time = now.timestamp_millis() as u128 + now_listening.duration.unwrap() as u128;
+            feishu_request.set_status(time).await;
+
             return Ok("Paused".to_string());
         }
     }
-
-    
 
     // println!("Updated: {:?}", payload);
     Ok("Updated".to_string())
